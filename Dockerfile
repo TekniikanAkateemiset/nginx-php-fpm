@@ -1,4 +1,4 @@
-FROM php:7.1.10-fpm-alpine
+FROM php:7.2.10-fpm-alpine
 
 LABEL maintainer="Ric Harvey <ric@ngd.io>"
 
@@ -6,11 +6,11 @@ ENV php_conf /usr/local/etc/php-fpm.conf
 ENV fpm_conf /usr/local/etc/php-fpm.d/www.conf
 ENV php_vars /usr/local/etc/php/conf.d/docker-vars.ini
 
-ENV NGINX_VERSION 1.13.6
-ENV LUA_MODULE_VERSION 0.10.10
+ENV NGINX_VERSION 1.14.0
+ENV LUA_MODULE_VERSION 0.10.13
 ENV DEVEL_KIT_MODULE_VERSION 0.3.0
 ENV LUAJIT_LIB=/usr/lib
-ENV LUAJIT_INC=/usr/include/luajit-2.0
+ENV LUAJIT_INC=/usr/include/luajit-2.1
 
 # resolves #166
 ENV LD_PRELOAD /usr/lib/preloadable_libiconv.so php
@@ -72,7 +72,7 @@ RUN GPG_KEYS=B0F4253373F8F6F510D42178520A9993A1C052F8 \
     gcc \
     libc-dev \
     make \
-    openssl-dev \
+    libressl-dev \
     pcre-dev \
     zlib-dev \
     linux-headers \
@@ -88,9 +88,19 @@ RUN GPG_KEYS=B0F4253373F8F6F510D42178520A9993A1C052F8 \
   && curl -fSL https://github.com/simpl/ngx_devel_kit/archive/v$DEVEL_KIT_MODULE_VERSION.tar.gz -o ndk.tar.gz \
   && curl -fSL https://github.com/openresty/lua-nginx-module/archive/v$LUA_MODULE_VERSION.tar.gz -o lua.tar.gz \
   && export GNUPGHOME="$(mktemp -d)" \
-  && gpg --keyserver ha.pool.sks-keyservers.net --recv-keys "$GPG_KEYS" \
-  && gpg --batch --verify nginx.tar.gz.asc nginx.tar.gz \
-  && rm -r "$GNUPGHOME" nginx.tar.gz.asc \
+  && found=''; \
+  for server in \
+    ha.pool.sks-keyservers.net \
+    hkp://keyserver.ubuntu.com:80 \
+    hkp://p80.pool.sks-keyservers.net:80 \
+    pgp.mit.edu \
+  ; do \
+    echo "Fetching GPG key $GPG_KEYS from $server"; \
+    gpg --keyserver "$server" --keyserver-options timeout=10 --recv-keys "$GPG_KEYS" && found=yes && break; \
+  done; \
+  test -z "$found" && echo >&2 "error: failed to fetch GPG key $GPG_KEYS" && exit 1; \
+  gpg --batch --verify nginx.tar.gz.asc nginx.tar.gz \
+  #&& rm -r "$GNUPGHOME" nginx.tar.gz.asc \
   && mkdir -p /usr/src \
   && tar -zxC /usr/src -f nginx.tar.gz \
   && tar -zxC /usr/src -f ndk.tar.gz \
@@ -124,6 +134,10 @@ RUN GPG_KEYS=B0F4253373F8F6F510D42178520A9993A1C052F8 \
   && strip /usr/lib/nginx/modules/*.so \
   && rm -rf /usr/src/nginx-$NGINX_VERSION \
   \
+  # Bring in gettext so we can get `envsubst`, then throw
+  # the rest away. To do this, we need to install `gettext`
+  # then move `envsubst` out of the way so `gettext` can
+  # be deleted completely, then move `envsubst` back.
   && apk add --no-cache --virtual .gettext gettext \
   && mv /usr/bin/envsubst /tmp/ \
   \
@@ -139,13 +153,15 @@ RUN GPG_KEYS=B0F4253373F8F6F510D42178520A9993A1C052F8 \
   && apk del .gettext \
   && mv /tmp/envsubst /usr/local/bin/ \
   \
+  # forward request and error logs to docker log collector
   && ln -sf /dev/stdout /var/log/nginx/access.log \
   && ln -sf /dev/stderr /var/log/nginx/error.log
 
 RUN echo @testing http://nl.alpinelinux.org/alpine/edge/testing >> /etc/apk/repositories && \
     echo /etc/apk/respositories && \
-    apk update && \
-    apk add --no-cache bash \
+    apk update && apk upgrade &&\
+    apk add --no-cache \
+    bash \
     wget \
     supervisor \
     curl \
@@ -155,7 +171,7 @@ RUN echo @testing http://nl.alpinelinux.org/alpine/edge/testing >> /etc/apk/repo
     python-dev \
     py-pip \
     augeas-dev \
-    openssl-dev \
+    libressl-dev \
     ca-certificates \
     dialog \
     autoconf \
@@ -170,14 +186,17 @@ RUN echo @testing http://nl.alpinelinux.org/alpine/edge/testing >> /etc/apk/repo
     libxslt-dev \
     libffi-dev \
     freetype-dev \
+    sqlite-dev \
     libjpeg-turbo-dev && \
     docker-php-ext-configure gd \
       --with-gd \
       --with-freetype-dir=/usr/include/ \
       --with-png-dir=/usr/include/ \
       --with-jpeg-dir=/usr/include/ && \
-    docker-php-ext-install pdo_mysql mysqli mcrypt gd exif intl xsl json soap dom zip opcache && \
-    pecl install xdebug && \
+    #curl iconv session
+    #docker-php-ext-install pdo_mysql pdo_sqlite mysqli mcrypt gd exif intl xsl json soap dom zip opcache && \
+    docker-php-ext-install iconv pdo_mysql pdo_sqlite mysqli gd exif intl xsl json soap dom zip opcache && \
+    pecl install xdebug-2.6.0 && \
     docker-php-source delete && \
     mkdir -p /etc/nginx && \
     mkdir -p /var/www/app && \
@@ -192,8 +211,8 @@ RUN echo @testing http://nl.alpinelinux.org/alpine/edge/testing >> /etc/apk/repo
     pip install -U certbot && \
     mkdir -p /etc/letsencrypt/webrootauth && \
     apk del gcc musl-dev linux-headers libffi-dev augeas-dev python-dev make autoconf
-
-RUN ln -s /usr/bin/php7 /usr/bin/php
+#    apk del .sys-deps
+#    ln -s /usr/bin/php7 /usr/bin/php
 
 ADD conf/supervisord.conf /etc/supervisord.conf
 
@@ -248,4 +267,6 @@ RUN chmod 755 /usr/bin/pull && chmod 755 /usr/bin/push && chmod 755 /usr/bin/let
 ADD src/ /var/www/html/
 ADD errors/ /var/www/errors
 
+WORKDIR "/var/www/html"
 CMD ["/start.sh"]
+
