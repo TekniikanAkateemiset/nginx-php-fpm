@@ -84,6 +84,11 @@ if [ ! -z "$PHP_MEM_LIMIT" ]; then
  sed -i "s/memory_limit = 128M/memory_limit = ${PHP_MEM_LIMIT}M/g" /usr/local/etc/php/conf.d/docker-vars.ini
 fi
 
+# Increase the maximum input variables
+if [ ! -z "$MAX_INPUT_VARS" ]; then
+ sed -i "s/max_input_vars = 1000/max_input_vars = ${MAX_INPUT_VARS}/g" /usr/local/etc/php/conf.d/docker-vars.ini
+fi
+
 # Increase the post_max_size
 if [ ! -z "$PHP_POST_MAX_SIZE" ]; then
  sed -i "s/post_max_size = 100M/post_max_size = ${PHP_POST_MAX_SIZE}M/g" /usr/local/etc/php/conf.d/docker-vars.ini
