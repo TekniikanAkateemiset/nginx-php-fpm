@@ -241,7 +241,7 @@ RUN echo "cgi.fix_pathinfo=0" > ${php_vars} &&\
     echo "max_input_vars = 1000" >> ${php_vars} && \
     sed -i \
         -e "s/;catch_workers_output\s*=\s*yes/catch_workers_output = yes/g" \
-        -e "s/pm.max_children = 5/pm.max_children = 4/g" \
+        -e "s/pm.max_children = 5/pm.max_children = 10/g" \
         -e "s/pm.start_servers = 2/pm.start_servers = 3/g" \
         -e "s/pm.min_spare_servers = 1/pm.min_spare_servers = 2/g" \
         -e "s/pm.max_spare_servers = 3/pm.max_spare_servers = 4/g" \
